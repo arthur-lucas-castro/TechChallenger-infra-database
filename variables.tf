@@ -13,7 +13,7 @@ variable "environment" {
 variable "remote_state_bucket" {
   description = "Bucket S3 onde ficam os states remotos (criado pelo bootstrap do repositório infra-kubernetes)."
   type        = string
-  default     = "techchallenger-fase1-terraform-state-shared"
+  default     = "techchallenger-fase1-terraform-state-859733682813"
 }
 
 variable "kubernetes_state_key" {
@@ -56,12 +56,22 @@ variable "db_username" {
   description = "Usuário administrador do banco RDS."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(trimspace(var.db_username)) > 0
+    error_message = "db_username não pode ser vazio. No CI, verifique se o secret DB_USER está configurado."
+  }
 }
 
 variable "db_password" {
   description = "Senha do usuário administrador do banco RDS."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(var.db_password) >= 8
+    error_message = "db_password deve ter pelo menos 8 caracteres. No CI, verifique se o secret DB_PASSWORD está configurado."
+  }
 }
 
 variable "db_allocated_storage" {
