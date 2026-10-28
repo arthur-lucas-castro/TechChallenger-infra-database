@@ -1,0 +1,12 @@
+cluster_name = "techchallenger-fase1"
+environment  = "dev"
+
+db_engine                  = "postgres"
+db_port                    = 5432
+db_instance_class          = "db.t3.micro"
+db_name                    = "techchallenger"
+db_username                = "appadmin"
+db_password                = "troque-por-uma-senha-forte"
+db_allocated_storage       = 20
+db_max_allocated_storage   = 50
+db_backup_retention_period = 7
