@@ -4,19 +4,37 @@ on:
   workflow_dispatch:
     inputs:
       confirm_publish:
-        description: "Confirma a publicação dos parâmetros no SSM (sobrescreve os valores atuais)? Requer o RDS já provisionado."
+        description: "Confirma a publicação no SSM (sobrescreve os valores informados)?"
         required: true
         type: choice
         options:
           - "no"
           - "yes"
         default: "no"
+      db_host:
+        description: "Host do RDS, sem a porta (output rds_address). Em branco mantém o valor atual."
+        required: false
+        type: string
+      db_name:
+        description: "Nome do banco. Em branco mantém o valor atual."
+        required: false
+        type: string
+      db_username:
+        description: "Usuário do banco. Em branco mantém o valor atual."
+        required: false
+        type: string
+      db_password:
+        description: "Senha do banco. Em branco mantém o valor atual."
+        required: false
+        type: string
+      jwt_secret:
+        description: "Segredo do JWT, igual ao Jwt__SecretKey da API (mínimo de 32 bytes). Em branco mantém o valor atual."
+        required: false
+        type: string
 
 # Nomes lidos pela Lambda de autenticação e pelas pipelines do TechChallenger-severless
-# (ADR-002): JWT_SECRET_PARAM e DB_PARAM_PREFIX. O identificador do RDS vem de
-# "${var.cluster_name}-db" em rds.tf.
+# (ADR-002): DB_PARAM_PREFIX e JWT_SECRET_PARAM.
 env:
-  DB_INSTANCE_IDENTIFIER: techchallenger-fase1-db
   DB_PARAM_PREFIX: /techchallenger/db
   JWT_SECRET_PARAM: /techchallenger/jwt/secret
 
@@ -33,20 +51,37 @@ jobs:
     permissions:
       contents: read
     steps:
-      # Falha antes de gravar qualquer valor, para não deixar os parâmetros pela metade.
-      - name: Validar secrets
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      # Precisa ser o primeiro passo. Os inputs são lidos do arquivo do evento porque
+      # ${{ inputs.x }} e env: gravariam os valores no log do passo.
+      - name: Mascarar valores sensíveis no log
         run: |
-          if [ -z "$DB_USER" ] || [ -z "$DB_PASSWORD" ]; then
-            echo "::error::Configure os secrets DB_USER e DB_PASSWORD no ambiente aws-deploy."
+          for field in db_password jwt_secret; do
+            value=$(jq -r --arg field "$field" '.inputs[$field] // ""' "$GITHUB_EVENT_PATH")
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
+          done
+
+      # Falha antes de gravar qualquer valor, para não deixar os parâmetros pela metade.
+      - name: Validar valores informados
+        run: |
+          input() { jq -r --arg field "$1" '.inputs[$field] // ""' "$GITHUB_EVENT_PATH"; }
+
+          host=$(input db_host)
+          jwt_secret=$(input jwt_secret)
+          if [ -z "$host$(input db_name)$(input db_username)$(input db_password)$jwt_secret" ]; then
+            echo "::error::Informe ao menos um valor."
             exit 1
           fi
+          case "$host" in
+            *:*)
+              echo "::error::db_host deve ser informado sem a porta (output rds_address, não rds_endpoint)."
+              exit 1
+              ;;
+          esac
           # A Lambda e o .NET recusam chaves HS256 com menos de 32 bytes.
-          if [ "$(printf '%s' "$JWT_SECRET" | wc -c)" -lt 32 ]; then
-            echo "::error::O secret JWT_SECRET precisa ter no mínimo 32 bytes e ser igual ao Jwt__SecretKey da API."
+          if [ -n "$jwt_secret" ] && [ "$(printf '%s' "$jwt_secret" | wc -c)" -lt 32 ]; then
+            echo "::error::jwt_secret precisa ter no mínimo 32 bytes."
             exit 1
           fi
 
@@ -59,34 +94,26 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
 
-      - name: Descobrir host e nome do banco no RDS
+      - name: Publicar parâmetros informados
         run: |
-          read -r address name < <(aws rds describe-db-instances \
-            --db-instance-identifier "$DB_INSTANCE_IDENTIFIER" \
-            --query 'DBInstances[0].[Endpoint.Address,DBName]' --output text)
-          if [ -z "$address" ] || [ "$address" = "None" ] || [ -z "$name" ] || [ "$name" = "None" ]; then
-            echo "::error::RDS $DB_INSTANCE_IDENTIFIER sem endpoint ou nome de banco. Ele já terminou de subir?"
-            exit 1
-          fi
-          echo "DB_HOST=$address" >> "$GITHUB_ENV"
-          echo "DB_NAME=$name" >> "$GITHUB_ENV"
+          input() { jq -r --arg field "$1" '.inputs[$field] // ""' "$GITHUB_EVENT_PATH"; }
 
-      - name: Publicar parâmetros
-        env:
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-        run: |
           put() {
-            aws ssm put-parameter --overwrite --name "$1" --type "$2" --value="$3" \
+            value=$(input "$3")
+            if [ -z "$value" ]; then
+              echo "$1: mantido"
+              return
+            fi
+            aws ssm put-parameter --overwrite --name "$1" --type "$2" --value="$value" \
               --query 'Version' --output text > /dev/null
-            echo "$1 ($2)"
+            echo "$1: atualizado ($2)"
           }
-          put "$DB_PARAM_PREFIX/host" String "$DB_HOST"
-          put "$DB_PARAM_PREFIX/name" String "$DB_NAME"
-          put "$DB_PARAM_PREFIX/username" String "$DB_USER"
-          put "$DB_PARAM_PREFIX/password" SecureString "$DB_PASSWORD"
-          put "$JWT_SECRET_PARAM" SecureString "$JWT_SECRET"
+
+          put "$DB_PARAM_PREFIX/host" String db_host
+          put "$DB_PARAM_PREFIX/name" String db_name
+          put "$DB_PARAM_PREFIX/username" String db_username
+          put "$DB_PARAM_PREFIX/password" SecureString db_password
+          put "$JWT_SECRET_PARAM" SecureString jwt_secret
 
       - name: Conferir parâmetros publicados (só nomes e tipos)
         run: |
