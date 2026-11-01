@@ -12,4 +12,5 @@ locals {
   vpc_id                        = data.terraform_remote_state.kubernetes.outputs.vpc_id
   private_subnet_ids            = data.terraform_remote_state.kubernetes.outputs.private_subnet_ids
   eks_cluster_security_group_id = data.terraform_remote_state.kubernetes.outputs.eks_cluster_security_group_id
+  rds_client_security_group_id  = data.terraform_remote_state.kubernetes.outputs.rds_client_security_group_id
 }

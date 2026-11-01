@@ -34,8 +34,3 @@ output "rds_security_group_id" {
   description = "ID do security group do RDS."
   value       = aws_security_group.rds.id
 }
-
-output "rds_client_security_group_id" {
-  description = "ID do SG rds-client. Consumidores do banco fora do EKS (ex.: Lambda de autenticação) associam este SG às suas ENIs para ganhar acesso ao RDS (ver ADR-002)."
-  value       = aws_security_group.rds_client.id
-}

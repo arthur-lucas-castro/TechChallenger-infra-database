@@ -20,8 +20,7 @@ Banco de dados gerenciado da oficina mecânica: **Amazon RDS for PostgreSQL**, p
 |---|---|
 | `aws_db_instance.this` | PostgreSQL `db.t3.micro`, gp3 criptografado, sem acesso público, backup de 7 dias |
 | `aws_db_subnet_group.this` | Subnets privadas da VPC do infra-kubernetes |
-| `aws_security_group.rds` | Porta 5432 liberada só para o SG do cluster EKS e para o SG `rds-client` |
-| `aws_security_group.rds_client` | SG sem regras de entrada. Quem precisa acessar o banco (ex.: a Lambda) só associa este SG |
+| `aws_security_group.rds` | Porta 5432 liberada só para o SG do cluster EKS e para o SG da Lambda, ambos criados pelo infra-kubernetes |
 
 ```
       ┌──────── VPC (infra-kubernetes) ── subnets privadas ────────┐
@@ -34,7 +33,7 @@ Banco de dados gerenciado da oficina mecânica: **Amazon RDS for PostgreSQL**, p
 
 ## Dependências
 
-Lê os outputs do **infra-kubernetes** via `terraform_remote_state` (`data.tf`): `vpc_id`, `private_subnet_ids` e `eks_cluster_security_group_id`. O bucket e a key ficam nas variáveis `remote_state_bucket` e `kubernetes_state_key`.
+Lê os outputs do **infra-kubernetes** via `terraform_remote_state` (`data.tf`): `vpc_id`, `private_subnet_ids`, `eks_cluster_security_group_id` e `rds_client_security_group_id`. O bucket e a key ficam nas variáveis `remote_state_bucket` e `kubernetes_state_key`.
 
 ## Outputs
 
@@ -43,7 +42,6 @@ Lê os outputs do **infra-kubernetes** via `terraform_remote_state` (`data.tf`):
 | `rds_address` | Secret `DB_HOST` do TechChallenger-Api; variável de ambiente da Lambda |
 | `rds_endpoint`, `rds_port`, `db_name` | TechChallenger-Api, severless |
 | `db_username`, `db_password` (sensíveis) | Montagem do `K8S_SECRET_ENV` da API |
-| `rds_client_security_group_id` | severless (associado às ENIs da Lambda) |
 
 ## Como usar
 
@@ -76,7 +74,7 @@ Os inputs de `workflow_dispatch` não têm a proteção de um secret: a pipeline
 ## Decisões de design
 
 - **Subnets privadas, sem acesso público**: só o EKS e os portadores do SG `rds-client` chegam ao banco.
-- **SG `rds-client` em vez de cada consumidor criar a própria regra**: assim nenhum repositório altera recursos deste. O state do SG do RDS fica inteiro aqui, com regras inline e sem conflito entre states ([ADR-002](https://github.com/arthur-lucas-castro/TechChallenger-severless/blob/main/docs/adr/ADR-002-localizacao-terraform-lambda-api-gateway.md)).
+- **SG `rds-client` no infra-kubernetes**: ele é criado junto com a Lambda (`rds_client_security_group_id`), e este repositório só lê o output e libera a porta. Assim o infra-kubernetes nunca depende do state daqui, e o infra-kubernetes precisa ser aplicado antes. O state do SG do RDS fica inteiro aqui, com regras inline e sem conflito entre states ([ADR-002](https://github.com/arthur-lucas-castro/TechChallenger-severless/blob/main/docs/adr/ADR-002-localizacao-terraform-lambda-api-gateway.md)).
 - **`db_engine_version = null`**: a AWS usa a versão padrão do momento, o que evita erro com versão descontinuada.
 - **Storage de 20GB (gp3) com autoscaling até 50GB**: 20GB é o piso da AWS para gp3 no Postgres, e o teto fica abaixo do limite de 100GB por volume do Learner Lab.
 - **`skip_final_snapshot = true`**: ambiente de estudo. Em produção, usar `false` e definir `final_snapshot_identifier`.
@@ -84,4 +82,4 @@ Os inputs de `workflow_dispatch` não têm a proteção de um secret: a pipeline
 
 ## Migração do monorepo
 
-O state destes recursos foi separado do monorepo pelo script `scripts/migrar-state-monorepo.sh` do repositório **infra-kubernetes**. Depois da migração, o primeiro `plan` deste repositório deve mostrar só a criação do SG `rds-client` e a nova regra no SG do RDS.
+O state destes recursos foi separado do monorepo pelo script `scripts/migrar-state-monorepo.sh` do repositório **infra-kubernetes**. Depois da migração, o primeiro `plan` deste repositório deve mostrar só a nova regra no SG do RDS.
