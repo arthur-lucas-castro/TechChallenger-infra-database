@@ -9,25 +9,6 @@ resource "aws_db_subnet_group" "this" {
   }
 }
 
-resource "aws_security_group" "rds_client" {
-  name        = "${var.cluster_name}-rds-client"
-  description = "Associe este SG a qualquer consumidor (ex.: Lambda de autenticacao) que precise acessar o RDS"
-  vpc_id      = local.vpc_id
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Project     = var.cluster_name
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
 resource "aws_security_group" "rds" {
   name        = "${var.cluster_name}-rds"
   description = "Permite acesso ao RDS apenas a partir dos nodes do EKS"
@@ -42,11 +23,11 @@ resource "aws_security_group" "rds" {
   }
 
   ingress {
-    description     = "Acesso ao banco a partir do SG rds-client (Lambda e outros consumidores)"
+    description     = "Acesso ao banco a partir do SG da Lambda de autenticacao"
     from_port       = var.db_port
     to_port         = var.db_port
     protocol        = "tcp"
-    security_groups = [aws_security_group.rds_client.id]
+    security_groups = [local.rds_client_security_group_id]
   }
 
   egress {
