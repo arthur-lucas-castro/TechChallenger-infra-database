@@ -65,8 +65,11 @@ O **schema** do banco (`01_schema.sql`) fica no repositório **TechChallenger-Ap
 | `terraform-ci.yml` | Pull request | `fmt -check` + `validate` (sem credenciais) |
 | `infra-apply.yml` | Manual | `plan` → `apply` → mostra `DB_HOST`/`DB_NAME` |
 | `infra-destroy.yml` | Manual | `plan -destroy` → aprovação → `destroy` |
+| `ssm-parameters.yml` | Manual | Publica `/techchallenger/db/*` e `/techchallenger/jwt/secret` no SSM |
 
-Secrets do environment `aws-deploy`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `DB_USER`, `DB_PASSWORD`. Variable: `MEU_USUARIO_GITHUB`.
+Secrets do environment `aws-deploy`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `DB_USER`, `DB_PASSWORD`, `JWT_SECRET`. Variable: `MEU_USUARIO_GITHUB`.
+
+`JWT_SECRET` é usado só pelo `ssm-parameters.yml`. Precisa ter no mínimo 32 bytes e ser igual ao `Jwt__SecretKey` da API. Rode esse workflow depois do `infra-apply.yml` e, depois de recriar o RDS, rode-o de novo, porque o host pode mudar. Valores já carregados pela Lambda ficam em cache até um novo cold start.
 
 ## Decisões de design
 

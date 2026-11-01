@@ -1,0 +1,95 @@
+name: Publicar parametros no SSM
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_publish:
+        description: "Confirma a publicação dos parâmetros no SSM (sobrescreve os valores atuais)? Requer o RDS já provisionado."
+        required: true
+        type: choice
+        options:
+          - "no"
+          - "yes"
+        default: "no"
+
+# Nomes lidos pela Lambda de autenticação e pelas pipelines do TechChallenger-severless
+# (ADR-002): JWT_SECRET_PARAM e DB_PARAM_PREFIX. O identificador do RDS vem de
+# "${var.cluster_name}-db" em rds.tf.
+env:
+  DB_INSTANCE_IDENTIFIER: techchallenger-fase1-db
+  DB_PARAM_PREFIX: /techchallenger/db
+  JWT_SECRET_PARAM: /techchallenger/jwt/secret
+
+concurrency:
+  group: ssm-parameters
+  cancel-in-progress: false
+
+jobs:
+  publish-parameters:
+    name: Publicar parâmetros no SSM
+    if: github.event.inputs.confirm_publish == 'yes'
+    runs-on: ubuntu-latest
+    environment: aws-deploy
+    permissions:
+      contents: read
+    steps:
+      # Falha antes de gravar qualquer valor, para não deixar os parâmetros pela metade.
+      - name: Validar secrets
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          if [ -z "$DB_USER" ] || [ -z "$DB_PASSWORD" ]; then
+            echo "::error::Configure os secrets DB_USER e DB_PASSWORD no ambiente aws-deploy."
+            exit 1
+          fi
+          # A Lambda e o .NET recusam chaves HS256 com menos de 32 bytes.
+          if [ "$(printf '%s' "$JWT_SECRET" | wc -c)" -lt 32 ]; then
+            echo "::error::O secret JWT_SECRET precisa ter no mínimo 32 bytes e ser igual ao Jwt__SecretKey da API."
+            exit 1
+          fi
+
+      # Credenciais temporárias do AWS Academy Learner Lab (expiram periodicamente e precisam ser renovadas nos secrets do repositório).
+      - name: Configurar credenciais AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Descobrir host e nome do banco no RDS
+        run: |
+          read -r address name < <(aws rds describe-db-instances \
+            --db-instance-identifier "$DB_INSTANCE_IDENTIFIER" \
+            --query 'DBInstances[0].[Endpoint.Address,DBName]' --output text)
+          if [ -z "$address" ] || [ "$address" = "None" ] || [ -z "$name" ] || [ "$name" = "None" ]; then
+            echo "::error::RDS $DB_INSTANCE_IDENTIFIER sem endpoint ou nome de banco. Ele já terminou de subir?"
+            exit 1
+          fi
+          echo "DB_HOST=$address" >> "$GITHUB_ENV"
+          echo "DB_NAME=$name" >> "$GITHUB_ENV"
+
+      - name: Publicar parâmetros
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          put() {
+            aws ssm put-parameter --overwrite --name "$1" --type "$2" --value="$3" \
+              --query 'Version' --output text > /dev/null
+            echo "$1 ($2)"
+          }
+          put "$DB_PARAM_PREFIX/host" String "$DB_HOST"
+          put "$DB_PARAM_PREFIX/name" String "$DB_NAME"
+          put "$DB_PARAM_PREFIX/username" String "$DB_USER"
+          put "$DB_PARAM_PREFIX/password" SecureString "$DB_PASSWORD"
+          put "$JWT_SECRET_PARAM" SecureString "$JWT_SECRET"
+
+      - name: Conferir parâmetros publicados (só nomes e tipos)
+        run: |
+          aws ssm describe-parameters \
+            --parameter-filters "Key=Name,Option=BeginsWith,Values=/techchallenger/" \
+            --query 'Parameters[].[Name,Type,Version]' --output table
