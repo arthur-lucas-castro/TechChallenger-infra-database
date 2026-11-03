@@ -39,9 +39,10 @@ Lê os outputs do **infra-kubernetes** via `terraform_remote_state` (`data.tf`):
 
 | Output | Consumidor |
 |---|---|
-| `rds_address` | Secret `DB_HOST` do TechChallenger-Api; variável de ambiente da Lambda |
-| `rds_endpoint`, `rds_port`, `db_name` | TechChallenger-Api, severless |
-| `db_username`, `db_password` (sensíveis) | Montagem do `K8S_SECRET_ENV` da API |
+| `rds_address` | Parâmetro `/techchallenger/db/host` no SSM |
+| `db_name` | Parâmetro `/techchallenger/db/name` no SSM |
+| `rds_endpoint`, `rds_port` | Consulta manual |
+| `db_username`, `db_password` (sensíveis) | Parâmetros `/techchallenger/db/username` e `/techchallenger/db/password` no SSM |
 
 ## Como usar
 
@@ -63,13 +64,10 @@ O **schema** do banco (`01_schema.sql`) fica no repositório **TechChallenger-Ap
 | `terraform-ci.yml` | Pull request | `fmt -check` + `validate` (sem credenciais) |
 | `infra-apply.yml` | Manual | `plan` → `apply` → mostra `DB_HOST`/`DB_NAME` |
 | `infra-destroy.yml` | Manual | `plan -destroy` → aprovação → `destroy` |
-| `ssm-parameters.yml` | Manual, com os valores informados no disparo | Publica `/techchallenger/db/*` e `/techchallenger/jwt/secret` no SSM |
 
 Secrets do environment `aws-deploy`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `DB_USER`, `DB_PASSWORD`. Variable: `MEU_USUARIO_GITHUB`.
 
-No `ssm-parameters.yml`, campo em branco mantém o valor atual, então dá para trocar um parâmetro só. O `db_host` é o output `rds_address`, sem a porta, e o `jwt_secret` precisa ter no mínimo 32 bytes e ser igual ao `Jwt__SecretKey` da API. Rode esse workflow depois do `infra-apply.yml` e, depois de recriar o RDS, informe o host de novo, porque ele pode mudar. Valores já carregados pela Lambda ficam em cache até um novo cold start.
-
-Os inputs de `workflow_dispatch` não têm a proteção de um secret: a pipeline mascara a senha e o segredo do JWT no log, mas o GitHub guarda os inputs no evento da execução. Quem tiver acesso ao repositório com permissão de disparar workflows também pode gravar nesses parâmetros.
+Os parâmetros do SSM são publicados pelo workflow `ssm-parameters.yml` do [TechChallenger-infra-kubernetes](https://github.com/arthur-lucas-castro/TechChallenger-infra-kubernetes). Rode esse workflow depois do `infra-apply.yml` e, depois de recriar o RDS, informe o host de novo, porque ele pode mudar. Se a senha do banco mudar no secret `DB_PASSWORD`, publique a nova lá também.
 
 ## Decisões de design
 
