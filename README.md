@@ -8,7 +8,7 @@ Banco de dados gerenciado da oficina mecânica: **Amazon RDS for PostgreSQL**, p
 |---|---|
 | [TechChallenger-infra-kubernetes](https://github.com/arthur-lucas-castro/TechChallenger-infra-kubernetes) | VPC, EKS, node group, ECR, bucket do state |
 | **TechChallenger-infra-database** (este) | RDS PostgreSQL |
-| [TechChallenger-severless](https://github.com/arthur-lucas-castro/TechChallenger-severless) | Lambda de autenticação por CPF + API Gateway |
+| [TechChallenger-severless](https://github.com/arthur-lucas-castro/TechChallenger-severless) | Código da Lambda de autenticação por CPF (o Terraform dela e do API Gateway fica no infra-kubernetes) |
 | [TechChallenger-Api](https://github.com/arthur-lucas-castro/TechChallenger-Api) | API da oficina, schema SQL e migração |
 
 **Ordem de provisionamento:** 1. infra-kubernetes → **2. infra-database** → 3. severless / Api.
@@ -30,6 +30,16 @@ Banco de dados gerenciado da oficina mecânica: **Amazon RDS for PostgreSQL**, p
       │   Lambda ─────(SG rds-client)──┘                             │
       └──────────────────────────────────────────────────────────────┘
 ```
+
+## Modelo de dados e decisão do banco
+
+| Documento | Conteúdo |
+|---|---|
+| [RFC-002: escolha do banco](https://github.com/arthur-lucas-castro/TechChallenger-Api/blob/main/docs/rfc/RFC-002-banco-de-dados.md) | PostgreSQL no RDS comparado com MySQL, SQL Server, Aurora e DynamoDB; justificativa de classe, armazenamento, rede e backup |
+| [Modelo relacional](https://github.com/arthur-lucas-castro/TechChallenger-Api/blob/main/docs/banco-de-dados/modelo-relacional.md) | Diagrama ER, relacionamentos, ajustes feitos na Fase 3 e ajustes recomendados |
+| [Documentação da arquitetura](https://github.com/arthur-lucas-castro/TechChallenger-Api/blob/main/docs/arquitetura/README.md) | Índice geral: componentes, sequência, RFCs e ADRs |
+
+O schema fica no TechChallenger-Api (`database/init/01_schema.sql`) e as tabelas de autenticação no TechChallenger-severless (`db/migrations/`); este repositório provisiona só a instância.
 
 ## Dependências
 
